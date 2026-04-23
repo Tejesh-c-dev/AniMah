@@ -1,77 +1,162 @@
-"use client";
+'use client';
 
-// Auth context — provides global user state and login/logout/register methods
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  type ReactNode,
-} from "react";
-import type { User } from "../types";
+import { createContext, useState, useCallback, useEffect, useContext } from 'react';
+import { User } from '@/types';
 
-interface AuthContextType {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+
+interface UseAuthReturn {
   user: User | null;
-  token: string | null;
-  login: (token: string, user: User) => void;
-  updateUser: (user: User) => void;
-  logout: () => void;
+  isLoading: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
-  isHydrated: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+interface ApiErrorResponse {
+  message?: string;
+}
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
+const getErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+  try {
+    const data = (await response.json()) as ApiErrorResponse;
+    if (data?.message && typeof data.message === 'string') {
+      return data.message;
+    }
+  } catch {
+    // Ignore JSON parse errors and use fallback.
+  }
 
-  // Read from localStorage after mount to avoid hydration mismatch
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const savedToken = localStorage.getItem("token");
-      const savedUser = localStorage.getItem("user");
-      if (savedToken) setToken(savedToken);
-      if (savedUser) setUser(JSON.parse(savedUser));
-      setIsHydrated(true);
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const login = (newToken: string, newUser: User) => {
-    localStorage.setItem("token", newToken);
-    localStorage.setItem("user", JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
-  };
-
-  const updateUser = (nextUser: User) => {
-    localStorage.setItem("user", JSON.stringify(nextUser));
-    setUser(nextUser);
-  };
-
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    setToken(null);
-    setUser(null);
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{ user, token, login, updateUser, logout, isAuthenticated: !!token, isHydrated }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  return fallback;
 };
 
-export const useAuth = (): AuthContextType => {
+const AuthContext = createContext<UseAuthReturn | null>(null);
+
+const useProvideAuth = (): UseAuthReturn => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data);
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const message = await getErrorMessage(response, 'Login failed');
+        throw new Error(message);
+      }
+
+      const { user } = await response.json();
+      setUser(user);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Login failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const register = useCallback(async (username: string, email: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const message = await getErrorMessage(response, 'Registration failed');
+        throw new Error(message);
+      }
+
+      const { user } = await response.json();
+      setUser(user);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Registration failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    setIsLoading(true);
+
+    try {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      setUser(null);
+    } catch (err) {
+      console.error('Logout failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  return {
+    user,
+    isLoading,
+    error,
+    login,
+    register,
+    logout,
+    isAuthenticated: !!user,
+  };
+};
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const auth = useProvideAuth();
+
+  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = (): UseAuthReturn => {
   const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
+
   return context;
 };

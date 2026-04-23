@@ -1,0 +1,89 @@
+AniMah Project Features
+=======================
+
+1) Core Product Features
+- Community platform for tracking anime, manhwa, and movies.
+- Browse all titles with category tabs (All, Anime, Manhwa, Movie).
+- Title discovery with search and type-based filtering.
+- Paginated home catalog with newest titles first.
+- Detailed title pages with rating summary and community reviews.
+
+2) Authentication & User Account
+- User registration and login.
+- JWT auth with secure HTTP-only cookie support.
+- Protected user-only functionality (reviews, favorites, watchlist, profile).
+- One-time admin bootstrap endpoint (setup key based).
+- Admin login flow.
+- Logout endpoint and current-user endpoint (/api/auth/me).
+
+3) Title Management
+- Create new titles (anime/manhwa/movie) via authenticated form.
+- Title metadata support: name, description, release year, type, genre.
+- Cover image support via data URL or URL string stored in coverImage.
+- Add-title UI supports image file selection, live preview, and remove-image action.
+- Image validation on add-title flow (must be image/*, max 5MB).
+- Public listing and per-title retrieval.
+- Admin-only title deletion.
+
+4) Reviews & Community Interaction
+- Create, edit, and delete reviews.
+- One-review-per-user-per-title enforced at data/API level.
+- Review sorting (latest, top rated, most helpful).
+- Review voting (helpful / not helpful).
+- Reply to reviews.
+
+5) Watchlist Features
+- Add title to watchlist with status.
+- Update watchlist status.
+- Remove title from watchlist.
+- Watchlist status options include:
+  PLAN_TO_WATCH, WATCHING, COMPLETED, DROPPED.
+- Watchlist statistics endpoint.
+- Watchlist view in user profile.
+
+6) Favorites Features
+- Add/remove favorites.
+- Toggle favorite in one action.
+- Check favorite status per title.
+- Favorites tab in user profile.
+- Interactive favorite button integration on title detail page.
+
+7) User Profile Features
+- Authenticated profile page with user identity and role badge.
+- Profile tabs: watchlist, favorites, reviews placeholder.
+- Integrated watchlist and favorites listing in profile.
+- Logout action from profile page.
+
+8) Admin Dashboard Features
+- Admin-only dashboard UI.
+- Platform overview stats in admin UI.
+- Backend admin APIs for users/titles/stats with search and pagination support.
+- User deletion safeguards and role update safeguards in admin APIs.
+
+9) Frontend UX Features
+- Responsive navigation with desktop and mobile menu.
+- Light/Dark theme toggle.
+- Route-based UI (home, login, register, add-title, profile, title detail, admin).
+- Animated UI elements (Framer Motion transitions/effects).
+- Loading skeletons and empty/error states across pages.
+- Reusable UI components (StarRating, FavoriteButton, WatchlistDropdown, skeletons, cards, badges).
+
+10) API & Backend Features
+- Express API modularized by domain: auth, titles, reviews, watchlist, favorites.
+- Additional admin API module for users/titles/stats management.
+- Health endpoint: /api/health.
+- Input sanitization middleware.
+- Centralized error handling middleware.
+- CORS configuration with configured origins and credentialed requests.
+- Create-title validation includes required fields, title type checks, and coverImage payload checks.
+
+11) Data & Infrastructure
+- Prisma ORM integration with migrations.
+- PostgreSQL schema with typed enums and constrained relations.
+- Backend TypeScript build output under server/dist.
+- Scripts for dev, build, start, lint, and Prisma workflows.
+
+12) Deployment & Environment
+- Configurable environment variables for DB, JWT/auth, admin setup, and CORS.
+- Next.js frontend + Express backend deployment flow documented.
+- Vercel-oriented frontend deployment support with configurable API base URL.

@@ -19,6 +19,37 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+
+# Cache
+.cache/
+.eslintcache
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+~*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Uploads
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Misc
+.turbo/
+.env.test
+.env.production.local
+yarn-error.log*
 pnpm-debug.log*
 
 # Cache
