@@ -33,6 +33,7 @@ const getErrorMessage = async (response: Response, fallback: string): Promise<st
 };
 
 const AuthContext = createContext<UseAuthReturn | null>(null);
+const AUTH_STORAGE_KEY = 'animah.auth.user';
 
 const useProvideAuth = (): UseAuthReturn => {
   const [user, setUser] = useState<User | null>(null);
@@ -41,15 +42,33 @@ const useProvideAuth = (): UseAuthReturn => {
 
   // Check if user is already logged in
   useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(AUTH_STORAGE_KEY);
+      if (raw) {
+        const cachedUser = JSON.parse(raw) as User;
+        setUser(cachedUser);
+        setIsLoading(false);
+      }
+    } catch {
+      window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+
+    const controller = new AbortController();
+
     const checkAuth = async () => {
       try {
         const response = await fetch(`${API_URL}/api/auth/me`, {
           credentials: 'include',
+          signal: controller.signal,
         });
 
         if (response.ok) {
           const data = await response.json();
           setUser(data);
+          window.sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+        } else if (response.status === 401) {
+          setUser(null);
+          window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
         }
       } catch (err) {
         console.error('Auth check failed:', err);
@@ -58,7 +77,11 @@ const useProvideAuth = (): UseAuthReturn => {
       }
     };
 
-    checkAuth();
+    void checkAuth();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -80,6 +103,7 @@ const useProvideAuth = (): UseAuthReturn => {
 
       const { user } = await response.json();
       setUser(user);
+      window.sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
@@ -108,6 +132,7 @@ const useProvideAuth = (): UseAuthReturn => {
 
       const { user } = await response.json();
       setUser(user);
+      window.sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Registration failed';
       setError(message);
@@ -127,6 +152,7 @@ const useProvideAuth = (): UseAuthReturn => {
       });
 
       setUser(null);
+      window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
     } catch (err) {
       console.error('Logout failed:', err);
     } finally {

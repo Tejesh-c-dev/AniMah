@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authorize } from '../middleware';
+import { prisma } from '../utils/prisma';
 import { Role } from '../../../src/types';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * GET /api/admin/users - List all users
@@ -101,6 +100,70 @@ router.delete('/users/:id', authorize(Role.ADMIN), async (req: Request, res: Res
 });
 
 /**
+ * GET /api/admin/stats - Get admin dashboard statistics
+ */
+router.get('/stats', authorize(Role.ADMIN), async (_req: Request, res: Response) => {
+  try {
+    const [userCount, titleCount, reviewCount, watchlistCount, favoriteCount] =
+      await Promise.all([
+        prisma.user.count(),
+        prisma.title.count(),
+        prisma.review.count(),
+        prisma.watchlist.count(),
+        prisma.favorite.count(),
+      ]);
+
+    // Get recent signups (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const recentSignups = await prisma.user.count({
+      where: { createdAt: { gte: sevenDaysAgo } },
+    });
+
+    // Get admin count
+    const adminCount = await prisma.user.count({
+      where: { role: Role.ADMIN },
+    });
+
+    // Get trending titles
+    const trendingTitles = await prisma.title.findMany({
+      include: {
+        _count: { select: { reviews: true, favorites: true } },
+      },
+      orderBy: { reviews: { _count: 'desc' } },
+      take: 5,
+    });
+
+    // Get recent users
+    const recentUsers = await prisma.user.findMany({
+      select: { id: true, username: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    res.json({
+      overview: {
+        totalUsers: userCount,
+        totalTitles: titleCount,
+        totalReviews: reviewCount,
+        totalWatchlistEntries: watchlistCount,
+        totalFavorites: favoriteCount,
+      },
+      recentStats: {
+        newUsersLast7Days: recentSignups,
+        totalAdmins: adminCount,
+      },
+      trendingTitles,
+      recentUsers,
+    });
+  } catch (error) {
+    console.error('Get admin stats error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
  * PATCH /api/admin/users/:id/role - Change user role
  */
 router.patch(
@@ -129,6 +192,18 @@ router.patch(
         return;
       }
 
+      // Prevent demoting the last admin
+      if (user.role === Role.ADMIN && role !== Role.ADMIN) {
+        const adminCount = await prisma.user.count({
+          where: { role: Role.ADMIN },
+        });
+
+        if (adminCount <= 1) {
+          res.status(400).json({ message: 'Cannot demote the last admin user' });
+          return;
+        }
+      }
+
       const updated = await prisma.user.update({
         where: { id },
         data: { role },
@@ -144,6 +219,112 @@ router.patch(
       res.json(updated);
     } catch (error) {
       console.error('Change user role error:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * POST /api/admin/users/:id/promote - Promote user to admin
+ */
+router.post(
+  '/users/:id/promote',
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      // Prevent promoting yourself
+      if (id === req.user!.userId) {
+        res.status(400).json({ message: 'Cannot promote yourself' });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({ where: { id } });
+
+      if (!user) {
+        res.status(404).json({ message: 'User not found' });
+        return;
+      }
+
+      if (user.role === Role.ADMIN) {
+        res.status(400).json({ message: 'User is already an admin' });
+        return;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { role: Role.ADMIN },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+
+      res.json({ ...updated, message: 'User promoted to admin' });
+    } catch (error) {
+      console.error('Promote user error:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * POST /api/admin/users/:id/demote - Demote admin to user
+ */
+router.post(
+  '/users/:id/demote',
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      // Prevent demoting yourself
+      if (id === req.user!.userId) {
+        res.status(400).json({ message: 'Cannot demote yourself' });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({ where: { id } });
+
+      if (!user) {
+        res.status(404).json({ message: 'User not found' });
+        return;
+      }
+
+      if (user.role !== Role.ADMIN) {
+        res.status(400).json({ message: 'User is not an admin' });
+        return;
+      }
+
+      // Prevent demoting the last admin
+      const adminCount = await prisma.user.count({
+        where: { role: Role.ADMIN },
+      });
+
+      if (adminCount <= 1) {
+        res.status(400).json({ message: 'Cannot demote the last admin user' });
+        return;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { role: Role.USER },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+
+      res.json({ ...updated, message: 'Admin demoted to user' });
+    } catch (error) {
+      console.error('Demote user error:', error);
       res.status(500).json({ message: 'Internal server error' });
     }
   }
@@ -195,53 +376,6 @@ router.get('/titles', authorize(Role.ADMIN), async (req: Request, res: Response)
     });
   } catch (error) {
     console.error('Get titles error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-/**
- * GET /api/admin/stats - Get admin dashboard statistics
- */
-router.get('/stats', authorize(Role.ADMIN), async (_req: Request, res: Response) => {
-  try {
-    const [userCount, titleCount, reviewCount, watchlistCount, favoriteCount] =
-      await Promise.all([
-        prisma.user.count(),
-        prisma.title.count(),
-        prisma.review.count(),
-        prisma.watchlist.count(),
-        prisma.favorite.count(),
-      ]);
-
-    // Get trending titles
-    const trendingTitles = await prisma.title.findMany({
-      include: {
-        _count: { select: { reviews: true, favorites: true } },
-      },
-      orderBy: { reviews: { _count: 'desc' } },
-      take: 5,
-    });
-
-    // Get recent users
-    const recentUsers = await prisma.user.findMany({
-      select: { id: true, username: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-    });
-
-    res.json({
-      overview: {
-        totalUsers: userCount,
-        totalTitles: titleCount,
-        totalReviews: reviewCount,
-        totalWatchlistEntries: watchlistCount,
-        totalFavorites: favoriteCount,
-      },
-      trendingTitles,
-      recentUsers,
-    });
-  } catch (error) {
-    console.error('Get admin stats error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

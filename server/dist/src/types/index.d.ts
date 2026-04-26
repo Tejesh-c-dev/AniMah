@@ -30,11 +30,13 @@ export interface UserProfile extends User {
 export interface Title {
     id: string;
     name: string;
+    normalizedName?: string;
     description: string;
     releaseYear: number;
     type: TitleType;
     coverImage?: string;
     genres: string[];
+    creatorId?: string;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -104,6 +106,7 @@ export interface CreateTitleRequest {
     description: string;
     releaseYear: number;
     type: TitleType;
+    genre?: string;
     genres: string[];
     coverImage?: string;
 }

@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authorize } from '../middleware';
+import { prisma } from '../utils/prisma';
 import { Role } from '../../../src/types';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * GET /api/favorites - Get current user's favorites
@@ -18,7 +17,17 @@ router.get('/', authorize(Role.USER, Role.ADMIN), async (req: Request, res: Resp
     const [favorites, total] = await Promise.all([
       prisma.favorite.findMany({
         where: { userId: req.user!.userId },
-        include: { title: true },
+        include: {
+          title: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              releaseYear: true,
+              coverImage: true,
+            },
+          },
+        },
         skip,
         take: Number(limit),
         orderBy: { addedAt: 'desc' },

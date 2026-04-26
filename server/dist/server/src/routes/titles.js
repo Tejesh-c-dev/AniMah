@@ -1,19 +1,54 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const client_1 = require("@prisma/client");
 const middleware_1 = require("../middleware");
+const prisma_1 = require("../utils/prisma");
 const types_1 = require("../../../src/types");
 const router = (0, express_1.Router)();
-const prisma = new client_1.PrismaClient();
+const MAX_COVER_IMAGE_BYTES = 5 * 1024 * 1024;
+const titleTypeValues = Object.values(types_1.TitleType);
+const normalizeTitleName = (name) => name.trim().toLowerCase();
+const isTitleType = (value) => typeof value === 'string' && titleTypeValues.includes(value);
+const sendHttpError = (next, status, message, details) => {
+    next({ status, message, details });
+};
+const validateCoverImage = (coverImage, next) => {
+    if (coverImage === undefined) {
+        return true;
+    }
+    if (typeof coverImage !== 'string') {
+        sendHttpError(next, 400, 'Cover image must be a valid string URL or data URL');
+        return false;
+    }
+    if (coverImage.startsWith('data:image/')) {
+        const commaIndex = coverImage.indexOf(',');
+        if (commaIndex === -1) {
+            sendHttpError(next, 400, 'Invalid cover image data URL format');
+            return false;
+        }
+        const base64Payload = coverImage.slice(commaIndex + 1);
+        const estimatedBytes = Math.ceil((base64Payload.length * 3) / 4);
+        if (estimatedBytes > MAX_COVER_IMAGE_BYTES) {
+            sendHttpError(next, 413, 'Cover image must be 5MB or smaller');
+            return false;
+        }
+    }
+    return true;
+};
 /**
  * GET /api/titles - Get all titles with filtering and pagination
  */
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
     try {
         const { type, search, page = 1, limit = 12 } = req.query;
+        const pageNumber = Number(page) > 0 ? Number(page) : 1;
+        const take = Math.min(Math.max(Number(limit) || 12, 1), 50);
         const where = {};
-        if (type && type !== 'ALL') {
+        if (typeof type === 'string' && type !== 'ALL') {
+            if (!isTitleType(type)) {
+                sendHttpError(next, 400, 'Invalid title type');
+                return;
+            }
             where.type = type;
         }
         if (search) {
@@ -22,48 +57,118 @@ router.get('/', async (req, res) => {
                 { description: { contains: String(search), mode: 'insensitive' } },
             ];
         }
-        const skip = (Number(page) - 1) * Number(limit);
+        const skip = (pageNumber - 1) * take;
         const [titles, total] = await Promise.all([
-            prisma.title.findMany({
+            prisma_1.prisma.title.findMany({
                 where,
                 skip,
-                take: Number(limit),
+                take,
                 orderBy: { createdAt: 'desc' },
+                select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    releaseYear: true,
+                    type: true,
+                    coverImage: true,
+                    genres: true,
+                    createdAt: true,
+                },
             }),
-            prisma.title.count({ where }),
+            prisma_1.prisma.title.count({ where }),
         ]);
+        // Public listing is read-heavy and safe to cache at the edge.
+        res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
         res.json({
             data: titles,
             pagination: {
-                page: Number(page),
-                limit: Number(limit),
+                page: pageNumber,
+                limit: take,
                 total,
-                pages: Math.ceil(total / Number(limit)),
+                pages: Math.ceil(total / take),
             },
         });
     }
     catch (error) {
-        console.error('Get titles error:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        next(error);
+    }
+});
+/**
+ * GET /api/titles/check-duplicate - Check if a title already exists
+ */
+router.get('/check-duplicate', async (req, res, next) => {
+    try {
+        const name = String(req.query.name || '').trim();
+        const typeQuery = req.query.type;
+        if (!name || typeof typeQuery !== 'string') {
+            sendHttpError(next, 400, 'name and type query params are required');
+            return;
+        }
+        if (!isTitleType(typeQuery)) {
+            sendHttpError(next, 400, 'Invalid title type');
+            return;
+        }
+        const type = typeQuery;
+        const normalizedName = normalizeTitleName(name);
+        const existing = await prisma_1.prisma.title.findFirst({
+            where: { normalizedName, type },
+            select: { id: true, name: true, type: true },
+        });
+        res.json({
+            exists: !!existing,
+            title: existing || null,
+        });
+    }
+    catch (error) {
+        next(error);
     }
 });
 /**
  * GET /api/titles/:id - Get a specific title with reviews and stats
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', middleware_1.optionalAuth, async (req, res, next) => {
     try {
         const { id } = req.params;
-        const title = await prisma.title.findUnique({
+        const title = await prisma_1.prisma.title.findUnique({
             where: { id },
             include: {
                 reviews: {
-                    include: { user: true, replies: { include: { user: true } } },
+                    select: {
+                        id: true,
+                        rating: true,
+                        content: true,
+                        helpful: true,
+                        notHelpful: true,
+                        createdAt: true,
+                        user: {
+                            select: {
+                                id: true,
+                                username: true,
+                                profileImage: true,
+                            },
+                        },
+                        replies: {
+                            select: {
+                                id: true,
+                                content: true,
+                                createdAt: true,
+                                user: {
+                                    select: {
+                                        id: true,
+                                        username: true,
+                                        profileImage: true,
+                                    },
+                                },
+                            },
+                            orderBy: { createdAt: 'asc' },
+                        },
+                    },
                     orderBy: { createdAt: 'desc' },
                 },
             },
         });
         if (!title) {
-            res.status(404).json({ message: 'Title not found' });
+            sendHttpError(next, 404, 'Title not found');
             return;
         }
         // Calculate stats
@@ -74,12 +179,12 @@ router.get('/:id', async (req, res) => {
         let watchlistStatus = null;
         if (req.user) {
             const [favorite, watchlist] = await Promise.all([
-                prisma.favorite.findUnique({
+                prisma_1.prisma.favorite.findUnique({
                     where: {
                         userId_titleId: { userId: req.user.userId, titleId: id },
                     },
                 }),
-                prisma.watchlist.findUnique({
+                prisma_1.prisma.watchlist.findUnique({
                     where: {
                         userId_titleId: { userId: req.user.userId, titleId: id },
                     },
@@ -87,6 +192,10 @@ router.get('/:id', async (req, res) => {
             ]);
             isFavorited = !!favorite;
             watchlistStatus = watchlist?.status || null;
+        }
+        if (!req.user) {
+            // Anonymous detail requests can be cached briefly.
+            res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=120');
         }
         res.json({
             ...title,
@@ -97,65 +206,188 @@ router.get('/:id', async (req, res) => {
         });
     }
     catch (error) {
-        console.error('Get title error:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        next(error);
     }
 });
 /**
  * POST /api/titles - Create a new title (authenticated)
  */
-router.post('/', middleware_1.authMiddleware, async (req, res) => {
+router.post('/', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res, next) => {
     try {
-        const { name, description, releaseYear, type, genres, coverImage } = req.body;
-        if (!name || !description || !releaseYear || !type) {
-            res.status(400).json({ message: 'Missing required fields' });
+        const body = req.body;
+        const { name, description, releaseYear, type, coverImage } = body;
+        const normalizedGenres = Array.isArray(body.genres)
+            ? body.genres
+            : typeof body.genre === 'string'
+                ? body.genre
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                : [];
+        const missingFields = [];
+        if (!name)
+            missingFields.push('name');
+        if (!description)
+            missingFields.push('description');
+        if (!releaseYear)
+            missingFields.push('releaseYear');
+        if (!type)
+            missingFields.push('type');
+        if (missingFields.length > 0) {
+            sendHttpError(next, 400, `Missing required field(s): ${missingFields.join(', ')}`);
             return;
         }
         // Validate type
         if (!Object.values(types_1.TitleType).includes(type)) {
-            res.status(400).json({ message: 'Invalid title type' });
+            sendHttpError(next, 400, 'Invalid title type');
             return;
         }
-        const title = await prisma.title.create({
+        if (!validateCoverImage(coverImage, next)) {
+            return;
+        }
+        const normalizedName = normalizeTitleName(name);
+        const duplicate = await prisma_1.prisma.title.findFirst({
+            where: { normalizedName, type },
+            select: { id: true },
+        });
+        if (duplicate) {
+            sendHttpError(next, 409, 'A title with this name and type already exists', {
+                existingTitleId: duplicate.id,
+            });
+            return;
+        }
+        const title = await prisma_1.prisma.title.create({
             data: {
                 name,
+                normalizedName,
                 description,
                 releaseYear,
                 type,
-                genres: genres || [],
+                genres: normalizedGenres,
                 coverImage,
+                creatorId: req.user.userId,
             },
         });
         res.status(201).json(title);
     }
     catch (error) {
-        console.error('Create title error:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        next(error);
     }
 });
 /**
- * DELETE /api/titles/:id - Delete a title (admin only)
+ * PUT /api/titles/:id - Update an existing title (owner or admin)
  */
-router.delete('/:id', middleware_1.authMiddleware, middleware_1.adminMiddleware, async (req, res) => {
+router.put('/:id', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res, next) => {
     try {
         const { id } = req.params;
-        const title = await prisma.title.findUnique({ where: { id } });
+        const body = req.body;
+        const { name, description, releaseYear, type, coverImage } = body;
+        const normalizedGenres = Array.isArray(body.genres)
+            ? body.genres
+            : typeof body.genre === 'string'
+                ? body.genre
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                : undefined;
+        const title = await prisma_1.prisma.title.findUnique({ where: { id } });
         if (!title) {
-            res.status(404).json({ message: 'Title not found' });
+            sendHttpError(next, 404, 'Title not found');
+            return;
+        }
+        const missingFields = [];
+        if (!name)
+            missingFields.push('name');
+        if (!description)
+            missingFields.push('description');
+        if (!releaseYear)
+            missingFields.push('releaseYear');
+        if (!type)
+            missingFields.push('type');
+        if (missingFields.length > 0) {
+            sendHttpError(next, 400, `Missing required field(s): ${missingFields.join(', ')}`);
+            return;
+        }
+        if (!isTitleType(type)) {
+            sendHttpError(next, 400, 'Invalid title type');
+            return;
+        }
+        if (typeof name !== 'string') {
+            sendHttpError(next, 400, 'Invalid title name');
+            return;
+        }
+        const isAdmin = req.user.role === types_1.Role.ADMIN;
+        const isOwner = title.creatorId === req.user.userId;
+        if (!isAdmin && !isOwner) {
+            sendHttpError(next, 403, 'You are not authorized to edit this title');
+            return;
+        }
+        const nextType = type;
+        const nextName = name.trim();
+        const normalizedName = normalizeTitleName(nextName);
+        const duplicate = await prisma_1.prisma.title.findFirst({
+            where: {
+                normalizedName,
+                type: nextType,
+                id: { not: id },
+            },
+            select: { id: true },
+        });
+        if (duplicate) {
+            sendHttpError(next, 409, 'A title with this name and type already exists', {
+                existingTitleId: duplicate.id,
+            });
+            return;
+        }
+        if (!validateCoverImage(coverImage, next)) {
+            return;
+        }
+        const updated = await prisma_1.prisma.title.update({
+            where: { id },
+            data: {
+                name: nextName,
+                normalizedName,
+                description: description ?? title.description,
+                releaseYear: releaseYear ?? title.releaseYear,
+                type: nextType,
+                genres: normalizedGenres ?? title.genres,
+                coverImage: coverImage === undefined ? title.coverImage : coverImage,
+            },
+        });
+        res.json(updated);
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * DELETE /api/titles/:id - Delete a title (owner or admin)
+ */
+router.delete('/:id', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const title = await prisma_1.prisma.title.findUnique({ where: { id } });
+        if (!title) {
+            sendHttpError(next, 404, 'Title not found');
+            return;
+        }
+        const isAdmin = req.user.role === types_1.Role.ADMIN;
+        const isOwner = title.creatorId === req.user.userId;
+        if (!isAdmin && !isOwner) {
+            sendHttpError(next, 403, 'You are not authorized to delete this title');
             return;
         }
         // Delete related data first
         await Promise.all([
-            prisma.favorite.deleteMany({ where: { titleId: id } }),
-            prisma.watchlist.deleteMany({ where: { titleId: id } }),
-            prisma.review.deleteMany({ where: { titleId: id } }),
+            prisma_1.prisma.favorite.deleteMany({ where: { titleId: id } }),
+            prisma_1.prisma.watchlist.deleteMany({ where: { titleId: id } }),
+            prisma_1.prisma.review.deleteMany({ where: { titleId: id } }),
         ]);
-        await prisma.title.delete({ where: { id } });
+        await prisma_1.prisma.title.delete({ where: { id } });
         res.json({ message: 'Title deleted successfully' });
     }
     catch (error) {
-        console.error('Delete title error:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        next(error);
     }
 });
 exports.default = router;

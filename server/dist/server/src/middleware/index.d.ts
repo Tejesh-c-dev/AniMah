@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { JWTPayload } from '../../../src/types';
+import { JWTPayload, Role } from '../../../src/types';
 declare global {
     namespace Express {
         interface Request {
@@ -8,13 +8,15 @@ declare global {
     }
 }
 /**
- * Middleware to authenticate user via JWT
+ * Middleware to authenticate and optionally authorize user via JWT.
  */
-export declare function authMiddleware(req: Request, res: Response, next: NextFunction): void;
+export declare function authorize(...roles: Role[]): (req: Request, res: Response, next: NextFunction) => void;
 /**
- * Middleware to check if user is admin
+ * Optional auth parser for public routes that can still use user context.
  */
-export declare function adminMiddleware(req: Request, res: Response, next: NextFunction): void;
+export declare function optionalAuth(req: Request, _res: Response, next: NextFunction): void;
+export declare const authMiddleware: (req: Request, res: Response, next: NextFunction) => void;
+export declare const adminMiddleware: (req: Request, res: Response, next: NextFunction) => void;
 /**
  * Middleware for CORS
  */

@@ -1,10 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { authorize, optionalAuth } from '../middleware';
+import { prisma } from '../utils/prisma';
 import { CreateTitleRequest, Role, TitleType } from '../../../src/types';
 
 const router = Router();
-const prisma = new PrismaClient();
 const MAX_COVER_IMAGE_BYTES = 5 * 1024 * 1024;
 const titleTypeValues = Object.values(TitleType) as TitleType[];
 
@@ -55,6 +55,8 @@ const validateCoverImage = (coverImage: unknown, next: NextFunction): coverImage
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { type, search, page = 1, limit = 12 } = req.query;
+    const pageNumber = Number(page) > 0 ? Number(page) : 1;
+    const take = Math.min(Math.max(Number(limit) || 12, 1), 50);
 
     const where: Prisma.TitleWhereInput = {};
 
@@ -74,25 +76,38 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       ];
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (pageNumber - 1) * take;
 
     const [titles, total] = await Promise.all([
       prisma.title.findMany({
         where,
         skip,
-        take: Number(limit),
+        take,
         orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          releaseYear: true,
+          type: true,
+          coverImage: true,
+          genres: true,
+          createdAt: true,
+        },
       }),
       prisma.title.count({ where }),
     ]);
 
+    // Public listing is read-heavy and safe to cache at the edge.
+    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
     res.json({
       data: titles,
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNumber,
+        limit: take,
         total,
-        pages: Math.ceil(total / Number(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (error) {
@@ -146,7 +161,36 @@ router.get('/:id', optionalAuth, async (req: Request, res: Response, next: NextF
       where: { id },
       include: {
         reviews: {
-          include: { user: true, replies: { include: { user: true } } },
+          select: {
+            id: true,
+            rating: true,
+            content: true,
+            helpful: true,
+            notHelpful: true,
+            createdAt: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                profileImage: true,
+              },
+            },
+            replies: {
+              select: {
+                id: true,
+                content: true,
+                createdAt: true,
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    profileImage: true,
+                  },
+                },
+              },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -182,6 +226,11 @@ router.get('/:id', optionalAuth, async (req: Request, res: Response, next: NextF
 
       isFavorited = !!favorite;
       watchlistStatus = watchlist?.status || null;
+    }
+
+    if (!req.user) {
+      // Anonymous detail requests can be cached briefly.
+      res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=120');
     }
 
     res.json({

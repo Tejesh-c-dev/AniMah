@@ -8,9 +8,10 @@ AniMah now runs as one root project with:
 ## Environment Setup
 
 1. Copy `.env.example` to `.env`.
-2. Fill backend variables (`DATABASE_URL`, `JWT_SECRET`, `SUPABASE_*`).
+2. Fill backend variables (`DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `ADMIN_SETUP_KEY`, `CORS_ORIGIN`).
 3. Set `ADMIN_SETUP_KEY` for one-time admin account bootstrap.
-3. Optionally set `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:5000`).
+4. Set `NEXT_PUBLIC_API_URL` to your backend base URL.
+5. For split-domain production (Vercel frontend + separate API), set `AUTH_COOKIE_SAMESITE=none`.
 
 ## Admin Account Setup
 
@@ -46,15 +47,17 @@ Deploy the Next.js frontend to Vercel and host the Express API on a separate bac
 1. Deploy backend (`server/`) to your backend provider.
 2. In Vercel project settings, set:
 	- `NEXT_PUBLIC_API_URL=https://your-backend-domain.com`
-3. Ensure backend environment variables are configured:
+3. Vercel build command should be `npm run build:web`.
+4. Ensure backend environment variables are configured:
 	- `DATABASE_URL`
+	- `DIRECT_URL`
 	- `JWT_SECRET`
-	- `SUPABASE_URL`
-	- `SUPABASE_ANON_KEY`
-	- `SUPABASE_BUCKET_NAME`
 	- `ADMIN_SETUP_KEY`
 	- `CORS_ORIGIN=https://your-vercel-app.vercel.app`
+	- `AUTH_COOKIE_SAMESITE=none`
 
 Notes:
 - You can provide multiple origins in `CORS_ORIGIN` as a comma-separated list.
-- If `NEXT_PUBLIC_API_URL` is omitted, the frontend will default to same-origin `/api`.
+- `JWT_SECRET` and `ADMIN_SETUP_KEY` must each be at least 32 characters.
+- `NEXT_PUBLIC_API_URL` is required in production for this split deployment.
+- If backend and frontend run on different domains, `AUTH_COOKIE_SAMESITE` must be `none` and HTTPS must be enabled.

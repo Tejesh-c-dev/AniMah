@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const client_1 = require("@prisma/client");
 const middleware_1 = require("../middleware");
+const prisma_1 = require("../utils/prisma");
+const types_1 = require("../../../src/types");
 const router = (0, express_1.Router)();
-const prisma = new client_1.PrismaClient();
 /**
  * GET /api/reviews/:titleId - Get reviews for a title
  */
@@ -19,7 +19,7 @@ router.get('/:titleId', async (req, res) => {
                 : { createdAt: 'desc' };
         const skip = (Number(page) - 1) * Number(limit);
         const [reviews, total] = await Promise.all([
-            prisma.review.findMany({
+            prisma_1.prisma.review.findMany({
                 where: { titleId },
                 include: {
                     user: { select: { id: true, username: true, profileImage: true } },
@@ -34,7 +34,7 @@ router.get('/:titleId', async (req, res) => {
                 take: Number(limit),
                 orderBy,
             }),
-            prisma.review.count({ where: { titleId } }),
+            prisma_1.prisma.review.count({ where: { titleId } }),
         ]);
         res.json({
             data: reviews,
@@ -54,7 +54,7 @@ router.get('/:titleId', async (req, res) => {
 /**
  * POST /api/reviews - Create a review
  */
-router.post('/', middleware_1.authMiddleware, async (req, res) => {
+router.post('/', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { titleId, rating, content } = req.body;
         if (!titleId || !rating || !content) {
@@ -67,7 +67,7 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
             return;
         }
         // Check if user already reviewed this title
-        const existingReview = await prisma.review.findUnique({
+        const existingReview = await prisma_1.prisma.review.findUnique({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },
@@ -76,7 +76,7 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
             res.status(409).json({ message: 'You have already reviewed this title' });
             return;
         }
-        const review = await prisma.review.create({
+        const review = await prisma_1.prisma.review.create({
             data: {
                 userId: req.user.userId,
                 titleId,
@@ -97,11 +97,11 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
 /**
  * PUT /api/reviews/:id - Update a review
  */
-router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
+router.put('/:id', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { id } = req.params;
         const { rating, content } = req.body;
-        const review = await prisma.review.findUnique({ where: { id } });
+        const review = await prisma_1.prisma.review.findUnique({ where: { id } });
         if (!review) {
             res.status(404).json({ message: 'Review not found' });
             return;
@@ -110,7 +110,7 @@ router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
             res.status(403).json({ message: 'Unauthorized' });
             return;
         }
-        const updated = await prisma.review.update({
+        const updated = await prisma_1.prisma.review.update({
             where: { id },
             data: {
                 rating: rating || review.rating,
@@ -130,10 +130,10 @@ router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
 /**
  * DELETE /api/reviews/:id - Delete a review
  */
-router.delete('/:id', middleware_1.authMiddleware, async (req, res) => {
+router.delete('/:id', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { id } = req.params;
-        const review = await prisma.review.findUnique({ where: { id } });
+        const review = await prisma_1.prisma.review.findUnique({ where: { id } });
         if (!review) {
             res.status(404).json({ message: 'Review not found' });
             return;
@@ -143,10 +143,10 @@ router.delete('/:id', middleware_1.authMiddleware, async (req, res) => {
             return;
         }
         await Promise.all([
-            prisma.reviewVote.deleteMany({ where: { reviewId: id } }),
-            prisma.reviewReply.deleteMany({ where: { reviewId: id } }),
+            prisma_1.prisma.reviewVote.deleteMany({ where: { reviewId: id } }),
+            prisma_1.prisma.reviewReply.deleteMany({ where: { reviewId: id } }),
         ]);
-        await prisma.review.delete({ where: { id } });
+        await prisma_1.prisma.review.delete({ where: { id } });
         res.json({ message: 'Review deleted successfully' });
     }
     catch (error) {
@@ -157,7 +157,7 @@ router.delete('/:id', middleware_1.authMiddleware, async (req, res) => {
 /**
  * POST /api/reviews/:id/vote - Vote on a review (helpful/not helpful)
  */
-router.post('/:id/vote', middleware_1.authMiddleware, async (req, res) => {
+router.post('/:id/vote', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { id } = req.params;
         const { isHelpful } = req.body;
@@ -165,13 +165,13 @@ router.post('/:id/vote', middleware_1.authMiddleware, async (req, res) => {
             res.status(400).json({ message: 'isHelpful must be boolean' });
             return;
         }
-        const review = await prisma.review.findUnique({ where: { id } });
+        const review = await prisma_1.prisma.review.findUnique({ where: { id } });
         if (!review) {
             res.status(404).json({ message: 'Review not found' });
             return;
         }
         // Check if user already voted
-        const existingVote = await prisma.reviewVote.findUnique({
+        const existingVote = await prisma_1.prisma.reviewVote.findUnique({
             where: {
                 userId_reviewId: { userId: req.user.userId, reviewId: id },
             },
@@ -180,27 +180,21 @@ router.post('/:id/vote', middleware_1.authMiddleware, async (req, res) => {
             res.status(409).json({ message: 'You have already voted on this review' });
             return;
         }
-        // Create vote
-        await prisma.reviewVote.create({
-            data: {
-                userId: req.user.userId,
-                reviewId: id,
-                isHelpful,
-            },
+        await prisma_1.prisma.$transaction(async (tx) => {
+            await tx.reviewVote.create({
+                data: {
+                    userId: req.user.userId,
+                    reviewId: id,
+                    isHelpful,
+                },
+            });
+            await tx.review.update({
+                where: { id },
+                data: isHelpful
+                    ? { helpful: { increment: 1 } }
+                    : { notHelpful: { increment: 1 } },
+            });
         });
-        // Update review helpful count
-        if (isHelpful) {
-            await prisma.review.update({
-                where: { id },
-                data: { helpful: { increment: 1 } },
-            });
-        }
-        else {
-            await prisma.review.update({
-                where: { id },
-                data: { notHelpful: { increment: 1 } },
-            });
-        }
         res.json({ message: 'Vote recorded successfully' });
     }
     catch (error) {
@@ -211,7 +205,7 @@ router.post('/:id/vote', middleware_1.authMiddleware, async (req, res) => {
 /**
  * POST /api/reviews/:id/reply - Add a reply to a review
  */
-router.post('/:id/reply', middleware_1.authMiddleware, async (req, res) => {
+router.post('/:id/reply', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { id } = req.params;
         const { content } = req.body;
@@ -219,12 +213,12 @@ router.post('/:id/reply', middleware_1.authMiddleware, async (req, res) => {
             res.status(400).json({ message: 'Missing content' });
             return;
         }
-        const review = await prisma.review.findUnique({ where: { id } });
+        const review = await prisma_1.prisma.review.findUnique({ where: { id } });
         if (!review) {
             res.status(404).json({ message: 'Review not found' });
             return;
         }
-        const reply = await prisma.reviewReply.create({
+        const reply = await prisma_1.prisma.reviewReply.create({
             data: {
                 userId: req.user.userId,
                 reviewId: id,

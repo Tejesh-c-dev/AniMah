@@ -14,8 +14,30 @@ import watchlistRoutes from './routes/watchlist';
 import favoritesRoutes from './routes/favorites';
 import adminRoutes from './routes/admin';
 
+const validateEnvironment = () => {
+  const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'ADMIN_SETUP_KEY', 'CORS_ORIGIN'];
+  const missingVars = requiredVars.filter((key) => !process.env[key] || !process.env[key]?.trim());
+
+  if (missingVars.length > 0) {
+    throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+  }
+
+  if ((process.env.JWT_SECRET as string).trim().length < 32) {
+    throw new Error('JWT_SECRET must be at least 32 characters.');
+  }
+
+  if ((process.env.ADMIN_SETUP_KEY as string).trim().length < 32) {
+    throw new Error('ADMIN_SETUP_KEY must be at least 32 characters.');
+  }
+};
+
+validateEnvironment();
+
 const app: Express = express();
 const PORT = process.env.PORT || 5000;
+
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));

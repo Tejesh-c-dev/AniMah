@@ -1,15 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const client_1 = require("@prisma/client");
 const middleware_1 = require("../middleware");
+const prisma_1 = require("../utils/prisma");
 const types_1 = require("../../../src/types");
 const router = (0, express_1.Router)();
-const prisma = new client_1.PrismaClient();
 /**
  * GET /api/watchlist - Get current user's watchlist
  */
-router.get('/', middleware_1.authMiddleware, async (req, res) => {
+router.get('/', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { status, page = 1, limit = 12 } = req.query;
         const where = { userId: req.user.userId };
@@ -18,14 +17,24 @@ router.get('/', middleware_1.authMiddleware, async (req, res) => {
         }
         const skip = (Number(page) - 1) * Number(limit);
         const [watchlist, total] = await Promise.all([
-            prisma.watchlist.findMany({
+            prisma_1.prisma.watchlist.findMany({
                 where,
-                include: { title: true },
+                include: {
+                    title: {
+                        select: {
+                            id: true,
+                            name: true,
+                            type: true,
+                            releaseYear: true,
+                            coverImage: true,
+                        },
+                    },
+                },
                 skip,
                 take: Number(limit),
                 orderBy: { addedAt: 'desc' },
             }),
-            prisma.watchlist.count({ where }),
+            prisma_1.prisma.watchlist.count({ where }),
         ]);
         res.json({
             data: watchlist,
@@ -45,7 +54,7 @@ router.get('/', middleware_1.authMiddleware, async (req, res) => {
 /**
  * POST /api/watchlist - Add title to watchlist
  */
-router.post('/', middleware_1.authMiddleware, async (req, res) => {
+router.post('/', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { titleId, status } = req.body;
         if (!titleId || !status) {
@@ -58,13 +67,13 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
             return;
         }
         // Check if title exists
-        const title = await prisma.title.findUnique({ where: { id: titleId } });
+        const title = await prisma_1.prisma.title.findUnique({ where: { id: titleId } });
         if (!title) {
             res.status(404).json({ message: 'Title not found' });
             return;
         }
         // Check if already in watchlist
-        const existing = await prisma.watchlist.findUnique({
+        const existing = await prisma_1.prisma.watchlist.findUnique({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },
@@ -73,7 +82,7 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
             res.status(409).json({ message: 'Title already in watchlist' });
             return;
         }
-        const watchlist = await prisma.watchlist.create({
+        const watchlist = await prisma_1.prisma.watchlist.create({
             data: {
                 userId: req.user.userId,
                 titleId,
@@ -91,7 +100,7 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
 /**
  * PUT /api/watchlist/:id - Update watchlist status
  */
-router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
+router.put('/:id', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
@@ -99,7 +108,18 @@ router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
             res.status(400).json({ message: 'Missing status' });
             return;
         }
-        const watchlist = await prisma.watchlist.findUnique({ where: { id } });
+        let watchlist = await prisma_1.prisma.watchlist.findUnique({ where: { id } });
+        // Backward compatibility: if caller sends a titleId in path, resolve it.
+        if (!watchlist) {
+            watchlist = await prisma_1.prisma.watchlist.findUnique({
+                where: {
+                    userId_titleId: {
+                        userId: req.user.userId,
+                        titleId: id,
+                    },
+                },
+            });
+        }
         if (!watchlist) {
             res.status(404).json({ message: 'Watchlist entry not found' });
             return;
@@ -108,10 +128,20 @@ router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
             res.status(403).json({ message: 'Unauthorized' });
             return;
         }
-        const updated = await prisma.watchlist.update({
-            where: { id },
+        const updated = await prisma_1.prisma.watchlist.update({
+            where: { id: watchlist.id },
             data: { status },
-            include: { title: true },
+            include: {
+                title: {
+                    select: {
+                        id: true,
+                        name: true,
+                        type: true,
+                        releaseYear: true,
+                        coverImage: true,
+                    },
+                },
+            },
         });
         res.json(updated);
     }
@@ -123,10 +153,20 @@ router.put('/:id', middleware_1.authMiddleware, async (req, res) => {
 /**
  * DELETE /api/watchlist/:id - Remove from watchlist
  */
-router.delete('/:id', middleware_1.authMiddleware, async (req, res) => {
+router.delete('/:id', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { id } = req.params;
-        const watchlist = await prisma.watchlist.findUnique({ where: { id } });
+        let watchlist = await prisma_1.prisma.watchlist.findUnique({ where: { id } });
+        if (!watchlist) {
+            watchlist = await prisma_1.prisma.watchlist.findUnique({
+                where: {
+                    userId_titleId: {
+                        userId: req.user.userId,
+                        titleId: id,
+                    },
+                },
+            });
+        }
         if (!watchlist) {
             res.status(404).json({ message: 'Watchlist entry not found' });
             return;
@@ -135,7 +175,7 @@ router.delete('/:id', middleware_1.authMiddleware, async (req, res) => {
             res.status(403).json({ message: 'Unauthorized' });
             return;
         }
-        await prisma.watchlist.delete({ where: { id } });
+        await prisma_1.prisma.watchlist.delete({ where: { id: watchlist.id } });
         res.json({ message: 'Removed from watchlist' });
     }
     catch (error) {
@@ -146,19 +186,19 @@ router.delete('/:id', middleware_1.authMiddleware, async (req, res) => {
 /**
  * GET /api/watchlist/stats - Get watchlist statistics
  */
-router.get('/stats', middleware_1.authMiddleware, async (req, res) => {
+router.get('/stats', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const counts = await Promise.all([
-            prisma.watchlist.count({
+            prisma_1.prisma.watchlist.count({
                 where: { userId: req.user.userId, status: types_1.WatchStatus.PLAN_TO_WATCH },
             }),
-            prisma.watchlist.count({
+            prisma_1.prisma.watchlist.count({
                 where: { userId: req.user.userId, status: types_1.WatchStatus.WATCHING },
             }),
-            prisma.watchlist.count({
+            prisma_1.prisma.watchlist.count({
                 where: { userId: req.user.userId, status: types_1.WatchStatus.COMPLETED },
             }),
-            prisma.watchlist.count({
+            prisma_1.prisma.watchlist.count({
                 where: { userId: req.user.userId, status: types_1.WatchStatus.DROPPED },
             }),
         ]);

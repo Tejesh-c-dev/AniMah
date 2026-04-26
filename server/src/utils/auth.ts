@@ -2,7 +2,17 @@ import jwt from 'jsonwebtoken';
 import bcryptjs from 'bcryptjs';
 import { JWTPayload } from '../../../src/types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-me';
+const resolveJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+
+  if (secret && secret.trim().length >= 32) {
+    return secret;
+  }
+
+  throw new Error('JWT_SECRET is required and must be at least 32 characters.');
+};
+
+const JWT_SECRET = resolveJwtSecret();
 const JWT_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 

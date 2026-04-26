@@ -4,23 +4,57 @@ const express_1 = require("express");
 const client_1 = require("@prisma/client");
 const auth_1 = require("../utils/auth");
 const middleware_1 = require("../middleware");
+const prisma_1 = require("../utils/prisma");
 const types_1 = require("../../../src/types");
 const router = (0, express_1.Router)();
-const prisma = new client_1.PrismaClient();
+const isProduction = process.env.NODE_ENV === 'production';
+const rawSameSite = process.env.AUTH_COOKIE_SAMESITE?.trim().toLowerCase();
+const cookieSameSite = rawSameSite === 'lax' || rawSameSite === 'none'
+    ? rawSameSite
+    : isProduction
+        ? 'none'
+        : 'lax';
+const cookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined;
+const authCookieOptions = {
+    httpOnly: true,
+    sameSite: cookieSameSite,
+    secure: isProduction || cookieSameSite === 'none',
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const getAuthValidationError = (username, email, password) => {
+    if (!username || !email || !password) {
+        return 'Missing required fields';
+    }
+    if (username.trim().length < 3) {
+        return 'Username must be at least 3 characters';
+    }
+    if (!EMAIL_REGEX.test(email)) {
+        return 'Please provide a valid email address';
+    }
+    if (password.length < 8) {
+        return 'Password must be at least 8 characters';
+    }
+    return null;
+};
 /**
  * POST /api/auth/register - Register a new user
  */
 router.post('/register', async (req, res) => {
     try {
         const { username, email, password } = req.body;
-        // Validate input
-        if (!username || !email || !password) {
-            res.status(400).json({ message: 'Missing required fields' });
+        const validationError = getAuthValidationError(username, email, password);
+        if (validationError) {
+            res.status(400).json({ message: validationError });
             return;
         }
+        const normalizedUsername = (username ?? '').trim();
+        const normalizedEmail = (email ?? '').trim().toLowerCase();
         // Check if user already exists
-        const existingUser = await prisma.user.findFirst({
-            where: { OR: [{ email }, { username }] },
+        const existingUser = await prisma_1.prisma.user.findFirst({
+            where: { OR: [{ email: normalizedEmail }, { username: normalizedUsername }] },
         });
         if (existingUser) {
             res.status(409).json({ message: 'User already exists' });
@@ -29,10 +63,10 @@ router.post('/register', async (req, res) => {
         // Hash password
         const passwordHash = await (0, auth_1.hashPassword)(password);
         // Create user
-        const user = await prisma.user.create({
+        const user = await prisma_1.prisma.user.create({
             data: {
-                username,
-                email,
+                username: normalizedUsername,
+                email: normalizedEmail,
                 passwordHash,
                 role: types_1.Role.USER,
             },
@@ -44,7 +78,7 @@ router.post('/register', async (req, res) => {
             role: user.role,
         });
         // Set cookie
-        res.setHeader('Set-Cookie', `token=${token}; HttpOnly; Path=/; Max-Age=604800`);
+        res.cookie('token', token, authCookieOptions);
         res.status(201).json({
             user: {
                 id: user.id,
@@ -52,10 +86,14 @@ router.post('/register', async (req, res) => {
                 email: user.email,
                 role: user.role,
             },
-            token,
         });
     }
     catch (error) {
+        if (error instanceof client_1.Prisma.PrismaClientKnownRequestError
+            && error.code === 'P2002') {
+            res.status(409).json({ message: 'User already exists' });
+            return;
+        }
         console.error('Register error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
@@ -71,7 +109,15 @@ router.post('/login', async (req, res) => {
             return;
         }
         // Find user
-        const user = await prisma.user.findUnique({ where: { email } });
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = await prisma_1.prisma.user.findFirst({
+            where: {
+                email: {
+                    equals: normalizedEmail,
+                    mode: 'insensitive',
+                },
+            },
+        });
         if (!user) {
             res.status(401).json({ message: 'Invalid credentials' });
             return;
@@ -89,7 +135,7 @@ router.post('/login', async (req, res) => {
             role: user.role,
         });
         // Set cookie
-        res.setHeader('Set-Cookie', `token=${token}; HttpOnly; Path=/; Max-Age=604800`);
+        res.cookie('token', token, authCookieOptions);
         res.json({
             user: {
                 id: user.id,
@@ -97,7 +143,6 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 role: user.role,
             },
-            token,
         });
     }
     catch (error) {
@@ -109,7 +154,13 @@ router.post('/login', async (req, res) => {
  * POST /api/auth/logout - Logout user
  */
 router.post('/logout', (_req, res) => {
-    res.setHeader('Set-Cookie', `token=; HttpOnly; Path=/; Max-Age=0`);
+    res.clearCookie('token', {
+        httpOnly: true,
+        sameSite: cookieSameSite,
+        secure: isProduction || cookieSameSite === 'none',
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
+        path: '/',
+    });
     res.json({ message: 'Logged out successfully' });
 });
 /**
@@ -117,8 +168,16 @@ router.post('/logout', (_req, res) => {
  */
 router.get('/me', middleware_1.authMiddleware, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({
+        const user = await prisma_1.prisma.user.findUnique({
             where: { id: req.user.userId },
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                role: true,
+                profileImage: true,
+                bio: true,
+            },
         });
         if (!user) {
             res.status(404).json({ message: 'User not found' });
@@ -144,13 +203,20 @@ router.get('/me', middleware_1.authMiddleware, async (req, res) => {
 router.post('/admin/bootstrap', async (req, res) => {
     try {
         const { username, email, password, setupKey } = req.body;
+        const validationError = getAuthValidationError(username, email, password);
+        if (validationError) {
+            res.status(400).json({ message: validationError });
+            return;
+        }
+        const normalizedUsername = String(username).trim();
+        const normalizedEmail = String(email).trim().toLowerCase();
         // Validate setup key
         if (setupKey !== process.env.ADMIN_SETUP_KEY) {
             res.status(403).json({ message: 'Invalid setup key' });
             return;
         }
         // Check if admin already exists
-        const existingAdmin = await prisma.user.findFirst({
+        const existingAdmin = await prisma_1.prisma.user.findFirst({
             where: { role: types_1.Role.ADMIN },
         });
         if (existingAdmin) {
@@ -160,10 +226,10 @@ router.post('/admin/bootstrap', async (req, res) => {
         // Hash password
         const passwordHash = await (0, auth_1.hashPassword)(password);
         // Create admin user
-        const admin = await prisma.user.create({
+        const admin = await prisma_1.prisma.user.create({
             data: {
-                username,
-                email,
+                username: normalizedUsername,
+                email: normalizedEmail,
                 passwordHash,
                 role: types_1.Role.ADMIN,
             },
@@ -174,6 +240,7 @@ router.post('/admin/bootstrap', async (req, res) => {
             email: admin.email,
             role: admin.role,
         });
+        res.cookie('token', token, authCookieOptions);
         res.status(201).json({
             user: {
                 id: admin.id,
@@ -181,7 +248,6 @@ router.post('/admin/bootstrap', async (req, res) => {
                 email: admin.email,
                 role: admin.role,
             },
-            token,
         });
     }
     catch (error) {
@@ -199,7 +265,15 @@ router.post('/admin/login', async (req, res) => {
             res.status(400).json({ message: 'Missing email or password' });
             return;
         }
-        const user = await prisma.user.findUnique({ where: { email } });
+        const normalizedEmail = String(email).trim().toLowerCase();
+        const user = await prisma_1.prisma.user.findFirst({
+            where: {
+                email: {
+                    equals: normalizedEmail,
+                    mode: 'insensitive',
+                },
+            },
+        });
         if (!user || user.role !== types_1.Role.ADMIN) {
             res.status(401).json({ message: 'Invalid credentials or not an admin' });
             return;
@@ -214,6 +288,7 @@ router.post('/admin/login', async (req, res) => {
             email: user.email,
             role: user.role,
         });
+        res.cookie('token', token, authCookieOptions);
         res.json({
             user: {
                 id: user.id,
@@ -221,7 +296,6 @@ router.post('/admin/login', async (req, res) => {
                 email: user.email,
                 role: user.role,
             },
-            token,
         });
     }
     catch (error) {

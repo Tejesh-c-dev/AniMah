@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authorize } from '../middleware';
+import { prisma } from '../utils/prisma';
 import { CreateReviewRequest, Role } from '../../../src/types';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * GET /api/reviews/:titleId - Get reviews for a title
@@ -209,27 +208,22 @@ router.post('/:id/vote', authorize(Role.USER, Role.ADMIN), async (req: Request, 
       return;
     }
 
-    // Create vote
-    await prisma.reviewVote.create({
-      data: {
-        userId: req.user!.userId,
-        reviewId: id,
-        isHelpful,
-      },
-    });
+    await prisma.$transaction(async (tx) => {
+      await tx.reviewVote.create({
+        data: {
+          userId: req.user!.userId,
+          reviewId: id,
+          isHelpful,
+        },
+      });
 
-    // Update review helpful count
-    if (isHelpful) {
-      await prisma.review.update({
+      await tx.review.update({
         where: { id },
-        data: { helpful: { increment: 1 } },
+        data: isHelpful
+          ? { helpful: { increment: 1 } }
+          : { notHelpful: { increment: 1 } },
       });
-    } else {
-      await prisma.review.update({
-        where: { id },
-        data: { notHelpful: { increment: 1 } },
-      });
-    }
+    });
 
     res.json({ message: 'Vote recorded successfully' });
   } catch (error) {

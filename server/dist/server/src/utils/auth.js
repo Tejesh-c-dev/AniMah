@@ -10,7 +10,14 @@ exports.comparePassword = comparePassword;
 exports.extractTokenFromRequest = extractTokenFromRequest;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-me';
+const resolveJwtSecret = () => {
+    const secret = process.env.JWT_SECRET;
+    if (secret && secret.trim().length >= 32) {
+        return secret;
+    }
+    throw new Error('JWT_SECRET is required and must be at least 32 characters.');
+};
+const JWT_SECRET = resolveJwtSecret();
 const JWT_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 /**

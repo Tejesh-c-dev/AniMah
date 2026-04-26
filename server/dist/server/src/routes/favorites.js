@@ -1,26 +1,36 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const client_1 = require("@prisma/client");
 const middleware_1 = require("../middleware");
+const prisma_1 = require("../utils/prisma");
+const types_1 = require("../../../src/types");
 const router = (0, express_1.Router)();
-const prisma = new client_1.PrismaClient();
 /**
  * GET /api/favorites - Get current user's favorites
  */
-router.get('/', middleware_1.authMiddleware, async (req, res) => {
+router.get('/', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { page = 1, limit = 12 } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
         const [favorites, total] = await Promise.all([
-            prisma.favorite.findMany({
+            prisma_1.prisma.favorite.findMany({
                 where: { userId: req.user.userId },
-                include: { title: true },
+                include: {
+                    title: {
+                        select: {
+                            id: true,
+                            name: true,
+                            type: true,
+                            releaseYear: true,
+                            coverImage: true,
+                        },
+                    },
+                },
                 skip,
                 take: Number(limit),
                 orderBy: { addedAt: 'desc' },
             }),
-            prisma.favorite.count({ where: { userId: req.user.userId } }),
+            prisma_1.prisma.favorite.count({ where: { userId: req.user.userId } }),
         ]);
         res.json({
             data: favorites,
@@ -40,7 +50,7 @@ router.get('/', middleware_1.authMiddleware, async (req, res) => {
 /**
  * POST /api/favorites - Add to favorites
  */
-router.post('/', middleware_1.authMiddleware, async (req, res) => {
+router.post('/', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { titleId } = req.body;
         if (!titleId) {
@@ -48,13 +58,13 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
             return;
         }
         // Check if title exists
-        const title = await prisma.title.findUnique({ where: { id: titleId } });
+        const title = await prisma_1.prisma.title.findUnique({ where: { id: titleId } });
         if (!title) {
             res.status(404).json({ message: 'Title not found' });
             return;
         }
         // Check if already favorited
-        const existing = await prisma.favorite.findUnique({
+        const existing = await prisma_1.prisma.favorite.findUnique({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },
@@ -63,7 +73,7 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
             res.status(409).json({ message: 'Already in favorites' });
             return;
         }
-        const favorite = await prisma.favorite.create({
+        const favorite = await prisma_1.prisma.favorite.create({
             data: {
                 userId: req.user.userId,
                 titleId,
@@ -80,10 +90,10 @@ router.post('/', middleware_1.authMiddleware, async (req, res) => {
 /**
  * DELETE /api/favorites/:titleId - Remove from favorites
  */
-router.delete('/:titleId', middleware_1.authMiddleware, async (req, res) => {
+router.delete('/:titleId', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { titleId } = req.params;
-        const favorite = await prisma.favorite.findUnique({
+        const favorite = await prisma_1.prisma.favorite.findUnique({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },
@@ -92,7 +102,7 @@ router.delete('/:titleId', middleware_1.authMiddleware, async (req, res) => {
             res.status(404).json({ message: 'Not in favorites' });
             return;
         }
-        await prisma.favorite.delete({
+        await prisma_1.prisma.favorite.delete({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },
@@ -107,23 +117,23 @@ router.delete('/:titleId', middleware_1.authMiddleware, async (req, res) => {
 /**
  * POST /api/favorites/toggle/:titleId - Toggle favorite status
  */
-router.post('/toggle/:titleId', middleware_1.authMiddleware, async (req, res) => {
+router.post('/toggle/:titleId', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { titleId } = req.params;
         // Check if title exists
-        const title = await prisma.title.findUnique({ where: { id: titleId } });
+        const title = await prisma_1.prisma.title.findUnique({ where: { id: titleId } });
         if (!title) {
             res.status(404).json({ message: 'Title not found' });
             return;
         }
-        const existing = await prisma.favorite.findUnique({
+        const existing = await prisma_1.prisma.favorite.findUnique({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },
         });
         if (existing) {
             // Remove from favorites
-            await prisma.favorite.delete({
+            await prisma_1.prisma.favorite.delete({
                 where: {
                     userId_titleId: { userId: req.user.userId, titleId },
                 },
@@ -132,7 +142,7 @@ router.post('/toggle/:titleId', middleware_1.authMiddleware, async (req, res) =>
         }
         else {
             // Add to favorites
-            await prisma.favorite.create({
+            await prisma_1.prisma.favorite.create({
                 data: {
                     userId: req.user.userId,
                     titleId,
@@ -149,10 +159,10 @@ router.post('/toggle/:titleId', middleware_1.authMiddleware, async (req, res) =>
 /**
  * GET /api/favorites/check/:titleId - Check if title is favorited
  */
-router.get('/check/:titleId', middleware_1.authMiddleware, async (req, res) => {
+router.get('/check/:titleId', (0, middleware_1.authorize)(types_1.Role.USER, types_1.Role.ADMIN), async (req, res) => {
     try {
         const { titleId } = req.params;
-        const favorite = await prisma.favorite.findUnique({
+        const favorite = await prisma_1.prisma.favorite.findUnique({
             where: {
                 userId_titleId: { userId: req.user.userId, titleId },
             },

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -69,26 +69,26 @@ export default function TitleDetailPage() {
     setToasts((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   };
 
-  useEffect(() => {
-    const fetchTitle = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/titles/${id}`, {
-          credentials: 'include',
-        });
+  const fetchTitle = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/titles/${id}`, {
+        credentials: 'include',
+      });
 
-        if (response.ok) {
-          const data = await response.json();
-          setTitle(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch title:', error);
-      } finally {
-        setIsLoading(false);
+      if (response.ok) {
+        const data = await response.json();
+        setTitle(data);
       }
-    };
-
-    fetchTitle();
+    } catch (error) {
+      console.error('Failed to fetch title:', error);
+    } finally {
+      setIsLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => {
+    void fetchTitle();
+  }, [fetchTitle]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,8 +111,7 @@ export default function TitleDetailPage() {
         setReviewRating(5);
         setReviewContent('');
         setShowReviewForm(false);
-        // Refetch title to update review count
-        window.location.reload();
+        await fetchTitle();
       }
     } catch (error) {
       console.error('Failed to submit review:', error);
@@ -139,14 +138,10 @@ export default function TitleDetailPage() {
 
     try {
       if (status === null) {
-        // Remove from watchlist
-        const watchlistId = title.watchlistStatus;
-        if (watchlistId) {
-          await fetch(`${API_URL}/api/watchlist/${watchlistId}`, {
-            method: 'DELETE',
-            credentials: 'include',
-          });
-        }
+        await fetch(`${API_URL}/api/watchlist/${title.id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
       } else {
         // Add or update watchlist
         if (title.watchlistStatus) {
@@ -167,7 +162,7 @@ export default function TitleDetailPage() {
           });
         }
       }
-      window.location.reload();
+      await fetchTitle();
     } catch (error) {
       console.error('Failed to update watchlist:', error);
     }

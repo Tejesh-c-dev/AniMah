@@ -1,3 +1,5 @@
 {
-  "buildCommand": "npm run build:web"
+  "buildCommand": "npm run build:web",
+  "framework": "nextjs",
+  "regions": ["bom1"]
 }

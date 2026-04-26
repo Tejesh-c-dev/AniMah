@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Card, Button, Badge, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
+import { Role } from '@/types';
 import Link from 'next/link';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
@@ -83,8 +84,17 @@ export default function ProfilePage() {
             <h1 className="text-3xl font-bold mb-2">{user.username}</h1>
             <p className="text-gray-600 dark:text-gray-400 mb-4">{user.email}</p>
 
-            <div className="flex flex-wrap gap-3">
-              <Badge variant="primary">{user.role}</Badge>
+            <div className="flex flex-wrap gap-3 items-center">
+              <Badge variant={user.role === Role.ADMIN ? 'danger' : 'primary'}>
+                {user.role === Role.ADMIN ? 'ADMIN' : 'USER'}
+              </Badge>
+              {user.role === Role.ADMIN && (
+                <Link href="/admin">
+                  <Button variant="danger" size="sm">
+                    Admin Dashboard
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
 

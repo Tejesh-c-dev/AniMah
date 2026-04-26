@@ -5,19 +5,27 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import ThemeToggle from './ThemeToggle';
 import { useAuth } from '@/hooks/useAuth';
+import { Role } from '@/types';
+
+interface NavItem {
+  href: string;
+  label: string;
+  requiresAuth?: boolean;
+  isAdmin?: boolean;
+}
 
 export const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
 
-  const navItems = [
+  const navItems: NavItem[] = [
     { href: '/', label: 'Browse' },
     { href: '/add-title', label: 'Add Title', requiresAuth: true },
     { href: '/profile', label: 'Profile', requiresAuth: true },
   ];
 
-  if (user?.role === 'ADMIN') {
-    navItems.push({ href: '/admin', label: 'Admin', requiresAuth: true });
+  if (user?.role === Role.ADMIN) {
+    navItems.push({ href: '/admin', label: 'Admin', requiresAuth: true, isAdmin: true });
   }
 
   return (
@@ -41,9 +49,14 @@ export const Navbar: React.FC = () => {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="text-gray-700 dark:text-gray-200 hover:text-blue-500 dark:hover:text-blue-400 transition-colors font-medium"
+                  className="text-gray-700 dark:text-gray-200 hover:text-blue-500 dark:hover:text-blue-400 transition-colors font-medium flex items-center gap-1"
                 >
                   {item.label}
+                  {item.isAdmin && user?.role === Role.ADMIN && (
+                    <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold">
+                      ADM
+                    </span>
+                  )}
                 </Link>
               )
             ))}
@@ -53,8 +66,16 @@ export const Navbar: React.FC = () => {
 
               {user ? (
                 <>
-                  <Link href="/profile" className="text-gray-700 dark:text-gray-200 hover:text-blue-500">
+                  <Link
+                    href="/profile"
+                    className="text-gray-700 dark:text-gray-200 hover:text-blue-500 flex items-center gap-2"
+                  >
                     {user.username}
+                    {user.role === Role.ADMIN && (
+                      <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold">
+                        ADM
+                      </span>
+                    )}
                   </Link>
                   <button
                     onClick={() => {
@@ -119,15 +140,29 @@ export const Navbar: React.FC = () => {
             ))}
 
             {user ? (
-              <button
-                onClick={() => {
+              <>
+                <Link
+                  href="/profile"
+                  className="block text-gray-700 dark:text-gray-200 hover:text-blue-500 px-2 py-1 flex items-center gap-2"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {user.username}
+                  {user.role === Role.ADMIN && (
+                    <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold">
+                      ADM
+                    </span>
+                  )}
+                </Link>
+                <button
+                  onClick={() => {
                     void logout();
-                  setIsMobileMenuOpen(false);
-                }}
-                className="w-full btn btn-secondary text-left px-2"
-              >
-                Logout
-              </button>
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full btn btn-secondary text-left px-2"
+                >
+                  Logout
+                </button>
+              </>
             ) : (
               <>
                 <Link href="/login" className="block btn btn-secondary text-center">

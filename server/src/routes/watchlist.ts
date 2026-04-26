@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authorize } from '../middleware';
+import { prisma } from '../utils/prisma';
 import { Role, UpdateWatchlistRequest, WatchStatus } from '../../../src/types';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * GET /api/watchlist - Get current user's watchlist
@@ -24,7 +23,17 @@ router.get('/', authorize(Role.USER, Role.ADMIN), async (req: Request, res: Resp
     const [watchlist, total] = await Promise.all([
       prisma.watchlist.findMany({
         where,
-        include: { title: true },
+        include: {
+          title: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              releaseYear: true,
+              coverImage: true,
+            },
+          },
+        },
         skip,
         take: Number(limit),
         orderBy: { addedAt: 'desc' },
@@ -114,7 +123,19 @@ router.put('/:id', authorize(Role.USER, Role.ADMIN), async (req: Request, res: R
       return;
     }
 
-    const watchlist = await prisma.watchlist.findUnique({ where: { id } });
+    let watchlist = await prisma.watchlist.findUnique({ where: { id } });
+
+    // Backward compatibility: if caller sends a titleId in path, resolve it.
+    if (!watchlist) {
+      watchlist = await prisma.watchlist.findUnique({
+        where: {
+          userId_titleId: {
+            userId: req.user!.userId,
+            titleId: id,
+          },
+        },
+      });
+    }
 
     if (!watchlist) {
       res.status(404).json({ message: 'Watchlist entry not found' });
@@ -127,9 +148,19 @@ router.put('/:id', authorize(Role.USER, Role.ADMIN), async (req: Request, res: R
     }
 
     const updated = await prisma.watchlist.update({
-      where: { id },
+      where: { id: watchlist.id },
       data: { status },
-      include: { title: true },
+      include: {
+        title: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            releaseYear: true,
+            coverImage: true,
+          },
+        },
+      },
     });
 
     res.json(updated);
@@ -146,7 +177,18 @@ router.delete('/:id', authorize(Role.USER, Role.ADMIN), async (req: Request, res
   try {
     const { id } = req.params;
 
-    const watchlist = await prisma.watchlist.findUnique({ where: { id } });
+    let watchlist = await prisma.watchlist.findUnique({ where: { id } });
+
+    if (!watchlist) {
+      watchlist = await prisma.watchlist.findUnique({
+        where: {
+          userId_titleId: {
+            userId: req.user!.userId,
+            titleId: id,
+          },
+        },
+      });
+    }
 
     if (!watchlist) {
       res.status(404).json({ message: 'Watchlist entry not found' });
@@ -158,7 +200,7 @@ router.delete('/:id', authorize(Role.USER, Role.ADMIN), async (req: Request, res
       return;
     }
 
-    await prisma.watchlist.delete({ where: { id } });
+    await prisma.watchlist.delete({ where: { id: watchlist.id } });
 
     res.json({ message: 'Removed from watchlist' });
   } catch (error) {
