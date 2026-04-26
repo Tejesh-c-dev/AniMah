@@ -6,8 +6,9 @@ import { Card, Skeleton, Button, Input, Badge } from '@/components/ui';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import { Role } from '@/types';
+import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const API_URL = getClientApiUrl();
 
 interface AdminUser {
   id: string;

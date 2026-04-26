@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Button, Input, Card } from '@/components/ui';
+import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = getClientApiUrl();
 
 export default function AdminSetupPage() {
   const router = useRouter();

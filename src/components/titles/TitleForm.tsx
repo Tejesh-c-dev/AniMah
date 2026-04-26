@@ -8,8 +8,9 @@ import { motion } from 'framer-motion';
 import { Button, Input } from '@/components/ui';
 import { ToastContainer } from '@/components/ui/Toast';
 import { TitleType } from '@/types';
+import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const API_URL = getClientApiUrl();
 const MAX_IMAGE_SIZE_MB = 5;
 
 interface DuplicateState {

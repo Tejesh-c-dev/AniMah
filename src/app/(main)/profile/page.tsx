@@ -7,8 +7,9 @@ import { Card, Button, Badge, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { Role } from '@/types';
 import Link from 'next/link';
+import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const API_URL = getClientApiUrl();
 
 export default function ProfilePage() {
   const router = useRouter();

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+const API_URL = getClientApiUrl();
 
 interface UseFetchOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';

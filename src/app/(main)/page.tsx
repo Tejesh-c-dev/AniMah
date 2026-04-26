@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Card, Button } from '@/components/ui';
 import { TitleType } from '@/types';
+import { getServerApiUrl } from '@/lib/config';
 
 export const revalidate = 60;
 
@@ -31,19 +32,7 @@ interface PaginatedResponse {
 }
 
 const getApiUrl = () => {
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-
-  if (process.env.API_URL) {
-    return process.env.API_URL;
-  }
-
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('Missing API base URL. Set NEXT_PUBLIC_API_URL (or API_URL for server components).');
-  }
-
-  return 'http://localhost:5000';
+  return getServerApiUrl();
 };
 
 const allowedTypes = new Set(['ALL', 'ANIME', 'MANHWA', 'MOVIE']);
