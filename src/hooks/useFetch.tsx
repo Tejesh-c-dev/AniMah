@@ -3,8 +3,6 @@
 import { useState, useCallback } from 'react';
 import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = getClientApiUrl();
-
 interface UseFetchOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   body?: Record<string, any>;
@@ -20,6 +18,16 @@ interface UseFetchReturn<T> {
   execute: (url: string, options?: UseFetchOptions) => Promise<T>;
 }
 
+const resolveClientApiUrl = (): string => {
+  const apiUrl = getClientApiUrl();
+
+  if (!apiUrl) {
+    throw new Error('Missing NEXT_PUBLIC_API_URL/API_URL configuration.');
+  }
+
+  return apiUrl;
+};
+
 export const useFetch = <T,>(): UseFetchReturn<T> => {
   const [data, setData] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,7 +39,8 @@ export const useFetch = <T,>(): UseFetchReturn<T> => {
       setError(null);
 
       try {
-        const response = await fetch(`${API_URL}${url}`, {
+        const apiUrl = resolveClientApiUrl();
+        const response = await fetch(`${apiUrl}${url}`, {
           method: options.method || 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -75,7 +84,8 @@ export const useFetchData = <T,>(url: string) => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}${url}`, {
+      const apiUrl = resolveClientApiUrl();
+      const response = await fetch(`${apiUrl}${url}`, {
         credentials: 'include',
       });
 

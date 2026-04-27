@@ -4,8 +4,6 @@ import { createContext, useState, useCallback, useEffect, useContext } from 'rea
 import { User } from '@/types';
 import { getClientApiUrl } from '@/lib/config';
 
-const API_URL = getClientApiUrl();
-
 interface UseAuthReturn {
   user: User | null;
   isLoading: boolean;
@@ -19,6 +17,16 @@ interface UseAuthReturn {
 interface ApiErrorResponse {
   message?: string;
 }
+
+const resolveClientApiUrl = (): string => {
+  const apiUrl = getClientApiUrl();
+
+  if (!apiUrl) {
+    throw new Error('Missing NEXT_PUBLIC_API_URL/API_URL configuration.');
+  }
+
+  return apiUrl;
+};
 
 const getErrorMessage = async (response: Response, fallback: string): Promise<string> => {
   try {
@@ -58,7 +66,8 @@ const useProvideAuth = (): UseAuthReturn => {
 
     const checkAuth = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/auth/me`, {
+        const apiUrl = resolveClientApiUrl();
+        const response = await fetch(`${apiUrl}/api/auth/me`, {
           credentials: 'include',
           signal: controller.signal,
         });
@@ -72,6 +81,12 @@ const useProvideAuth = (): UseAuthReturn => {
           window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+
+        const message = err instanceof Error ? err.message : 'Auth check failed';
+        setError(message);
         console.error('Auth check failed:', err);
       } finally {
         setIsLoading(false);
@@ -90,7 +105,8 @@ const useProvideAuth = (): UseAuthReturn => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      const apiUrl = resolveClientApiUrl();
+      const response = await fetch(`${apiUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -119,7 +135,8 @@ const useProvideAuth = (): UseAuthReturn => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
+      const apiUrl = resolveClientApiUrl();
+      const response = await fetch(`${apiUrl}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, email, password }),
@@ -147,7 +164,8 @@ const useProvideAuth = (): UseAuthReturn => {
     setIsLoading(true);
 
     try {
-      await fetch(`${API_URL}/api/auth/logout`, {
+      const apiUrl = resolveClientApiUrl();
+      await fetch(`${apiUrl}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });

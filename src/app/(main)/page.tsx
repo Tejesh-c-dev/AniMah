@@ -29,6 +29,7 @@ interface PaginatedResponse {
     total: number;
     pages: number;
   };
+  error?: string;
 }
 
 const getApiUrl = () => {
@@ -58,16 +59,57 @@ const toQuery = (params: SearchParams) => {
 
 async function getTitles(params: SearchParams): Promise<PaginatedResponse> {
   const apiUrl = getApiUrl();
-  const query = toQuery(params);
-  const response = await fetch(`${apiUrl}/api/titles?${query}`, {
-    next: { revalidate: 60 },
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch titles');
+  if (!apiUrl) {
+    return {
+      data: [],
+      pagination: {
+        page: Number(params.page || '1') || 1,
+        total: 0,
+        pages: 1,
+      },
+      error: 'Missing API configuration. Set API_URL or NEXT_PUBLIC_API_URL in production.',
+    };
   }
 
-  return response.json();
+  const query = toQuery(params);
+  try {
+    const response = await fetch(`${apiUrl}/api/titles?${query}`, {
+      next: { revalidate: 60 },
+    });
+
+    if (!response.ok) {
+      return {
+        data: [],
+        pagination: {
+          page: Number(params.page || '1') || 1,
+          total: 0,
+          pages: 1,
+        },
+        error: `Failed to fetch titles (HTTP ${response.status})`,
+      };
+    }
+
+    const json = (await response.json()) as Partial<PaginatedResponse>;
+    return {
+      data: Array.isArray(json.data) ? json.data : [],
+      pagination: {
+        page: Number(json.pagination?.page ?? (Number(params.page || '1') || 1)),
+        total: Number(json.pagination?.total ?? 0),
+        pages: Math.max(1, Number(json.pagination?.pages ?? 1)),
+      },
+      error: typeof json.error === 'string' ? json.error : undefined,
+    };
+  } catch {
+    return {
+      data: [],
+      pagination: {
+        page: Number(params.page || '1') || 1,
+        total: 0,
+        pages: 1,
+      },
+      error: 'Unable to reach the API server. Check NEXT_PUBLIC_API_URL/API_URL.',
+    };
+  }
 }
 
 export default async function HomePage({
@@ -123,6 +165,12 @@ export default async function HomePage({
       </div>
 
       <div className="mb-8 space-y-4">
+        {data.error && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            {data.error}
+          </div>
+        )}
+
         <form action="/" method="get" className="relative">
           <input type="hidden" name="type" value={selectedType} />
           <input type="hidden" name="page" value="1" />

@@ -26,62 +26,103 @@ export function getApiUrl(options?: {
   fallback?: string;
 }): string {
   const { isServer = false, fallback = 'http://localhost:5000' } = options ?? {};
+  const normalizedFallback = sanitizeUrl(fallback);
+  const publicApiUrl = readEnvUrl(process.env.NEXT_PUBLIC_API_URL);
+  const serverApiUrl = readEnvUrl(process.env.API_URL);
 
   // For client components: prefer NEXT_PUBLIC_API_URL
   if (!isServer && typeof window !== 'undefined') {
-    const clientUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (clientUrl) {
-      return sanitizeUrl(clientUrl);
+    if (publicApiUrl) {
+      return publicApiUrl;
     }
+
+    if (serverApiUrl) {
+      return serverApiUrl;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      return normalizedFallback;
+    }
+
+    // Last-resort client fallback for same-origin API deployments.
+    return sanitizeUrl(window.location.origin);
   }
 
-  // For server components or when NEXT_PUBLIC_API_URL is not set
-  const serverUrl = process.env.API_URL;
-  if (serverUrl) {
-    return sanitizeUrl(serverUrl);
+  if (serverApiUrl) {
+    return serverApiUrl;
+  }
+
+  if (publicApiUrl) {
+    return publicApiUrl;
   }
 
   // Vercel preview/production: if VERCEL_URL is set, assume backend is available
-  // This handles cases where backend runs on the same domain or via internal networking
-  const vercelUrl = process.env.VERCEL_URL;
-  if (vercelUrl && process.env.VERCEL) {
-    // In production, backend might be on a different domain
-    // Fall through to the default fallback or throw if in production
-    if (process.env.NODE_ENV !== 'production') {
-      // For preview deployments, try to use the Vercel URL
-      return `https://${vercelUrl}`;
+  // This handles cases where backend runs on the same domain.
+  const vercelUrl = readEnvUrl(process.env.VERCEL_URL);
+  if (vercelUrl) {
+    if (vercelUrl.startsWith('http://') || vercelUrl.startsWith('https://')) {
+      return vercelUrl;
     }
+
+    return `https://${vercelUrl}`;
   }
 
   // Development fallback
   if (process.env.NODE_ENV === 'development') {
-    return fallback;
+    return normalizedFallback;
   }
 
-  // Production: throw explicit error if no URL configured
+  // Production: return empty string; callers should provide graceful fallback UI
+  // and explicitly warn about missing configuration
   if (process.env.NODE_ENV === 'production') {
-    // Don't throw - return empty string to let fetch fail gracefully
-    // This prevents server crashes in production
+    console.warn(
+      '⚠️  WARNING: API URL not configured in production!\n' +
+      'Set one of the following environment variables in Vercel Project Settings → Environment Variables:\n' +
+      '  - NEXT_PUBLIC_API_URL (for client-side API calls)\n' +
+      '  - API_URL (for server-side API calls)\n' +
+      '  - Or deploy backend to same Vercel project (uses VERCEL_URL automatically)\n' +
+      'See: https://vercel.com/docs/projects/environment-variables'
+    );
     return '';
   }
 
-  return fallback;
+  return normalizedFallback;
 }
 
 /**
  * Get API URL specifically for client-side use.
  * Ensures NEXT_PUBLIC_API_URL is preferred.
+ * Throws error if not configured in production.
  */
 export function getClientApiUrl(): string {
-  return getApiUrl({ isServer: false });
+  const url = getApiUrl({ isServer: false });
+  
+  if (!url && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Missing NEXT_PUBLIC_API_URL in production. ' +
+      'Set NEXT_PUBLIC_API_URL in Vercel Project Settings → Environment Variables.'
+    );
+  }
+  
+  return url;
 }
 
 /**
  * Get API URL specifically for server-side use.
  * Checks API_URL first, then falls back to NEXT_PUBLIC_API_URL.
+ * Throws error if not configured in production.
  */
 export function getServerApiUrl(): string {
-  return getApiUrl({ isServer: true });
+  const url = getApiUrl({ isServer: true });
+  
+  if (!url && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Missing API_URL in production. ' +
+      'Set API_URL in Vercel Project Settings → Environment Variables.'
+    );
+  }
+  
+  return url;
 }
 
 /**
@@ -89,6 +130,14 @@ export function getServerApiUrl(): string {
  */
 function sanitizeUrl(url: string): string {
   return url.replace(/\/$/, '');
+}
+
+function readEnvUrl(value: string | undefined): string {
+  if (!value || !value.trim()) {
+    return '';
+  }
+
+  return sanitizeUrl(value.trim());
 }
 
 /**

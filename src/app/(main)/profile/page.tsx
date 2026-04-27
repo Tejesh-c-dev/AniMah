@@ -11,12 +11,30 @@ import { getClientApiUrl } from '@/lib/config';
 
 const API_URL = getClientApiUrl();
 
+interface WatchlistEntry {
+  id: string;
+  status: string;
+  title: {
+    id: string;
+    name: string;
+  };
+}
+
+interface FavoriteEntry {
+  id: string;
+  title: {
+    id: string;
+    name: string;
+    releaseYear?: number;
+  };
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const { user, logout, isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'watchlist' | 'favorites' | 'reviews'>('watchlist');
-  const [watchlist, setWatchlist] = useState([]);
-  const [favorites, setFavorites] = useState([]);
+  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteEntry[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
 
   useEffect(() => {
@@ -38,12 +56,12 @@ export default function ProfilePage() {
 
         if (watchlistRes.ok) {
           const data = await watchlistRes.json();
-          setWatchlist(data.data);
+          setWatchlist(Array.isArray(data?.data) ? data.data : []);
         }
 
         if (favoritesRes.ok) {
           const data = await favoritesRes.json();
-          setFavorites(data.data);
+          setFavorites(Array.isArray(data?.data) ? data.data : []);
         }
       } catch (error) {
         console.error('Failed to fetch user data:', error);
@@ -137,7 +155,7 @@ export default function ProfilePage() {
             {isLoadingData ? (
               <Skeleton count={3} />
             ) : watchlist.length > 0 ? (
-              watchlist.map((entry: any) => (
+              watchlist.map((entry) => (
                 <Card key={entry.id} className="flex items-center justify-between p-4">
                   <div>
                     <h3 className="font-bold text-lg">{entry.title.name}</h3>
@@ -170,7 +188,7 @@ export default function ProfilePage() {
             {isLoadingData ? (
               Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} />)
             ) : favorites.length > 0 ? (
-              favorites.map((fav: any) => (
+              favorites.map((fav) => (
                 <Link key={fav.id} href={`/titles/${fav.title.id}`}>
                   <Card hoverable clickable>
                     <div className="aspect-square bg-gradient-to-br from-blue-400 to-purple-600 rounded mb-4 flex items-center justify-center text-6xl">

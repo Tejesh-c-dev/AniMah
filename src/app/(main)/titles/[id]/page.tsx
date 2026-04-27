@@ -51,6 +51,7 @@ interface ToastItem {
 
 export default function TitleDetailPage() {
   const { id } = useParams();
+  const titleId = Array.isArray(id) ? id[0] : id;
   const router = useRouter();
   const { user } = useAuth();
   const [title, setTitle] = useState<TitleDetail | null>(null);
@@ -71,21 +72,33 @@ export default function TitleDetailPage() {
   };
 
   const fetchTitle = useCallback(async () => {
+    if (!titleId) {
+      setTitle(null);
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`${API_URL}/api/titles/${id}`, {
+      const response = await fetch(`${API_URL}/api/titles/${titleId}`, {
         credentials: 'include',
       });
 
       if (response.ok) {
         const data = await response.json();
-        setTitle(data);
+        setTitle({
+          ...data,
+          genres: Array.isArray(data?.genres) ? data.genres : [],
+          reviews: Array.isArray(data?.reviews) ? data.reviews : [],
+          averageRating: Number(data?.averageRating ?? 0),
+          reviewCount: Number(data?.reviewCount ?? 0),
+        });
       }
     } catch (error) {
       console.error('Failed to fetch title:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [titleId]);
 
   useEffect(() => {
     void fetchTitle();
@@ -276,7 +289,7 @@ export default function TitleDetailPage() {
                   </svg>
                 ))}
               </div>
-              <span className="text-2xl font-bold">{title.averageRating.toFixed(1)}/5</span>
+              <span className="text-2xl font-bold">{Number(title.averageRating || 0).toFixed(1)}/5</span>
               <span className="text-gray-600 dark:text-gray-400">({title.reviewCount} reviews)</span>
             </div>
           </div>

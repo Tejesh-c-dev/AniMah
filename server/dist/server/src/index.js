@@ -27,6 +27,12 @@ const validateEnvironment = () => {
     }
 };
 validateEnvironment();
+process.on('unhandledRejection', (reason) => {
+    process.stderr.write(`❌ Unhandled Promise Rejection: ${String(reason)}\n`);
+});
+process.on('uncaughtException', (error) => {
+    process.stderr.write(`❌ Uncaught Exception: ${error.message}\n`);
+});
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 app.disable('x-powered-by');
